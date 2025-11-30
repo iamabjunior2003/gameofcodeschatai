@@ -1,111 +1,57 @@
+const chatBody = document.querySelector(".chat-body");
+const messageInput = document.querySelector(".message-input");
+const sendMessageButton = document.querySelector("#send-message");
+const fileInput = document.querySelector("#file-input");
+const fileUploadWrapper = document.querySelector("#file-upload-wrapper");
+const fileCancelButton = document.querySelector("#file-cancel");
+const chatbotToggler = document.querySelector("#chatbot-toggler");
+const closeChatbot = document.querySelector("#close-chatbot");
 
-/* ---------------------------------------------------------
-   Game Of Codes – Full Fixed Gemini Chatbot Script
-   (NO model errors + sidebar fixed + working chat)
-------------------------------------------------------------*/
+// API setup
+const API_KEY = "AIzaSyASf1nivZBq4Y0BbMeY-TO64AZbVpwV11k";
+const API_URL = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${API_KEY}`;
 
-// ---------- VALID MODELS ----------
-const VALID_MODELS = {
-  "gemini-2.0-flash": "gemini-2.0-flash",
-  "gemini-1.5-flash": "gemini-1.5-flash", 
-  "gemini-1.5-pro": "gemini-1.5-pro",
-  "gemini-2.5-flash": "gemini-2.5-flash"
+const userData = {
+  message: null,
+  file: {
+    data: null,
+    mime_type: null,
+  },
 };
 
-// ---------- CONFIG ----------
-let MODEL = "gemini-2.5-flash";   // default safe model
-let CLIENT_API_KEY = "AIzaSyCKVBC6JcHmsLRQfIHmm6YH4uDT0559es8";
+const chatHistory = [];
+const initialInputHeight = messageInput.scrollHeight;
 
-function buildUrl(key) {
-  return `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent?key=${key}`;
-}
-
-
-/* ---------- DOM ---------- */
-const chatBody = document.getElementById("chat-body");
-const chatInput = document.getElementById("chat-input");
-const fileInput = document.getElementById("file-input");
-const fileUploadBtn = document.getElementById("file-upload");
-const sendMessageBtn = document.getElementById("send-message");
-const cameraBtn = document.getElementById("camera-capture-btn");
-const emojiBtn = document.getElementById("emoji-picker");
-const micToggle = document.getElementById("mic-toggle");
-const ttsToggle = document.getElementById("tts-toggle");
-const modelSelect = document.getElementById("model-select");
-
-/* ---------- STATE ---------- */
-let chatHistory = JSON.parse(localStorage.getItem("goc_chat_history") || "[]");
-let outgoingFiles = [];
-let useTTS = false;
-let isRecording = false;
-let recognizer;
-
-/* ---------- HELPERS ---------- */
-function scrollToBottom(){ chatBody.scrollTo({top: chatBody.scrollHeight, behavior:"smooth"}); }
-function saveHistory(){ localStorage.setItem("goc_chat_history", JSON.stringify(chatHistory)); }
-
-function el(tag, cls="", html=""){
-  const d = document.createElement(tag);
-  if(cls) d.className = cls;
-  if(html) d.innerHTML = html;
-  return d;
-}
-
-/* ---------- RENDER HISTORY ---------- */
-function renderHistory(){
-  chatBody.innerHTML = "";
-  chatHistory.forEach(m=>{
-    const txt = (m.parts||[]).map(p=>p.text||"").join("<br>");
-    appendMessage({role:m.role==="user"?"user":"bot", text:txt});
-  });
-}
-
-/* ---------- APPEND MESSAGE ---------- */
-function appendMessage({role="bot", text="", thinking=false}){
-  const wrap = el("div", `msg ${role}-message`);
-  const bubble = el("div", "msg-bubble");
-
-  if(thinking){
-    bubble.innerHTML = `<div class="typing"><span>•</span><span>•</span><span>•</span></div>`;
-    wrap.classList.add("thinking");
-  } else {
-    bubble.innerHTML = text.replace(/\n/g,"<br>");
-  }
-
-  wrap.appendChild(bubble);
-  chatBody.appendChild(wrap);
-  scrollToBottom();
-  return wrap;
-}
-
-/* ---------- FILE UPLOAD ---------- */
-fileUploadBtn.onclick = ()=> fileInput.click();
-
-fileInput.onchange = async ()=>{
-  const files = [...fileInput.files];
-  for(const f of files){
-    const b64 = await fileToBase64(f);
-    outgoingFiles.push({ data:b64, mime_type:f.type });
-    appendMessage({role:"user", text:`📎 Attached: ${f.name}`});
-  }
-  fileInput.value="";
+const createMessageElement = (content, ...classes) => {
+  const div = document.createElement("div");
+  div.classList.add("message", ...classes);
+  div.innerHTML = content;
+  return div;
 };
 
-function fileToBase64(file){
-  return new Promise(res=>{
-    const r = new FileReader();
-    r.onload = ()=> res(r.result.split(",")[1]);
-    r.readAsDataURL(file);
-  });
-}
+const generateBotResponse = async (incomingMessageDiv) => {
+  const messageElement = incomingMessageDiv.querySelector(".message-text");
 
-/* ---------- CAMERA CAPTURE ---------- */
-cameraBtn.onclick = async ()=>{
-  try{
-    const stream = await navigator.mediaDevices.getUserMedia({video:true});
-    const video = document.createElement("video");
-    video.srcObject = stream;
-    await video.play();
+  chatHistory.push({
+    role: "user",
+    parts: [
+      { text: userData.message },
+      ...(userData.file.data ? [{ inline_data: userData.file }] : []),
+    ],
+  });
+
+  const requestOptions = {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      contents: chatHistory,
+    }),
+  };
+
+  try {
+    const response = await fetch(API_URL, requestOptions);
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error.message);
 
     const c = document.createElement("canvas");
     c.width = video.videoWidth;
@@ -251,90 +197,46 @@ document.querySelectorAll(".nav-item").forEach(btn=>{
   });
 });
 
-function showPage(page){
-
-  document.querySelector(".hero").style.display="none";
-  document.querySelector(".workspace").style.display="none";
-  document.querySelectorAll(".page").forEach(p=>p.classList.add("hidden"));
-
-  if(page==="home"){
-    document.querySelector(".hero").style.display="block";
-    document.querySelector(".workspace").style.display="flex";
-  } else {
-    const sec = document.getElementById("page-"+page);
-    if(sec) sec.classList.remove("hidden");
-  }
-}
-
-/* ---------- INIT ---------- */
-renderHistory();
-
-/* -------------------------------
-    CHAT HISTORY PAGE RENDERING
---------------------------------*/
-
-function updateHistoryPage() {
-  const page = document.getElementById("page-history");
-
-  if (!chatHistory || chatHistory.length === 0) {
-    page.innerHTML = `
-      <h2 class="page-title">History</h2>
-      <p class="page-empty">📜 No chat history yet.</p>
-    `;
-    return;
-  }
-
-  // Build history entries
-  let html = `
-    <h2 class="page-title">History</h2>
-    <div class="history-list">
-  `;
-
-  chatHistory.forEach((msg, index) => {
-    if (msg.role === "user") {
-      const preview = msg.parts[0]?.text?.substring(0, 50) || "Message";
-      html += `
-        <div class="history-item" data-index="${index}">
-          <div class="history-preview">${preview}...</div>
-          <div class="history-time">${new Date().toLocaleString()}</div>
-        </div>
-      `;
+const picker = new EmojiMart.Picker({
+  theme: "light",
+  skinTonePosition: "none",
+  preview: "none",
+  onEmojiSelect: (emoji) => {
+    const { selectionStart: start, selectionEnd: end } = messageInput;
+    messageInput.setRangeText(emoji.native, start, end, "end");
+    messageInput.focus();
+  },
+  onClickOutside: (e) => {
+    if (e.target.id === "emoji-picker") {
+      document.body.classList.toggle("show-emoji-picker");
+    } else {
+      document.body.classList.remove("show-emoji-picker");
     }
-  });
-
-  html += `</div>`;
-  page.innerHTML = html;
-
-  // Click event: load previous chat state
-  document.querySelectorAll(".history-item").forEach(item => {
-    item.onclick = () => {
-      loadHistoryChat();
-      showPage("home");
-      document.querySelector("[data-page='home']").classList.add("active");
-    };
-  });
-}
-
-function loadHistoryChat() {
-  renderHistory();
-  scrollToBottom();
-}
-
-function showPage(page) {
-
-  document.querySelector(".hero").style.display = "none";
-  document.querySelector(".workspace").style.display = "none";
-  document.querySelectorAll(".page").forEach(p => p.classList.add("hidden"));
-
-  if (page === "home") {
-    document.querySelector(".hero").style.display = "block";
-    document.querySelector(".workspace").style.display = "flex";
-  } 
-  else if (page === "history") {
-    updateHistoryPage(); // <-- auto fill history page
-    document.getElementById("page-history").classList.remove("hidden");
-  } 
-  else {
-    document.getElementById("page-" + page).classList.remove("hidden");
   }
-}
+});
+
+document.querySelector(".chat-form").appendChild(picker);
+
+
+
+
+sendMessageButton.addEventListener("click", (e) => handleOutgoingMessage(e));
+document
+  .querySelector("#file-upload")
+  .addEventListener("click", () => fileInput.click());
+
+chatbotToggler.addEventListener("click", () => { 
+    document.body.classList.toggle("show-chatbot");
+  });
+
+  closeChatbot.addEventListener("click", () => { 
+    document.body.classList.remove("show-chatbot");
+  });
+
+  // Home screen fade-out after typing animation
+window.addEventListener("load", () => {
+  const homeScreen = document.getElementById("home-screen");
+  setTimeout(() => {
+    homeScreen.classList.add("fade-out");
+  }, 3500); // wait for typing animation
+});
